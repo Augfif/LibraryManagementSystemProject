@@ -5,7 +5,7 @@
 # 通配符 '*'
 __all__ = ['Retrieve']
 
-import time
+import time, sqlite3
 import tkinter as tk
 from tkinter import ttk
 import tkinter.messagebox as tkmb
@@ -90,44 +90,52 @@ class Retrieve(LoginUI_two):
     # 确认找回密码
     def confirmRetrieve(self):
         # print([self.retrieve_userVar.get(),self.retrieve_phoneVar.get(),self.retrieve_inputVerifyVar.get(),self.retrieve_showVerifyVar.get()])
+        username = self.retrieve_userVar.get().strip()
+        phone = self.retrieve_phoneVar.get().strip()
 
-        # 如果用户数据为空
-        if not self.userData:
-            self.bell()  # 警告声
-            self.retrieve_hintLabel.config(text='恭喜您是首位用户\n  快来注册体验吧！', background='pink')  # 输入错误提示语
-            self.retrieve_hintLabel.place(x=155, y=55)  # 显示错误提示标签内容
-            self.retrieveUI.update()  # 窗口更新
-            time.sleep(1)  # 睡眠1秒
-            self.retrieve_hintLabel.place_forget()  # 隐藏错误提示标签内容
-            return
+        conn = sqlite3.connect(getattr(self, 'db_path', 'user_info.db'))
+        try:
+            cursor = conn.cursor()
 
-        # 查找用户名是否已注册
-        for name in self.userData:
-            # 如果已注册
-            if name[0] == self.retrieve_userVar.get():
-                # 验证手机号码是否正确
-                if name[2] == self.retrieve_phoneVar.get():
-                    # 判断验证码是否正确
-                    if self.verify_code_ok(self.retrieve_showVerifyVar.get(), self.retrieve_inputVerifyVar.get()):
-                        # 登录成功
-                        print('找回成功')
-                        self.retrieve_password(name)
+            # 判断数据库是否已有用户
+            cursor.execute("SELECT COUNT(*) FROM user_info")
+            user_count = cursor.fetchone()[0]
+            if user_count == 0:
+                self.bell()  # 警告声
+                self.retrieve_hintLabel.config(text='恭喜您是首位用户\n  快来注册体验吧！', background='pink')
+                self.retrieve_hintLabel.place(x=155, y=55)
+                self.retrieveUI.update()
+                time.sleep(1)
+                self.retrieve_hintLabel.place_forget()
+                return
 
-                        return
-                    # 验证码错误
-                    else:
-                        self.retrieve_verifyButton.focus()  # 设置焦点
-                        self.retrieve_hintLabel.config(text='验证码输入错误', background='red')  # 输入错误提示语
-                        break
-                # 手机号码错误
+            # 优先按用户名+手机号联合匹配
+            cursor.execute(
+                "SELECT username, password, phone, role FROM user_info WHERE username = ? AND phone = ?",
+                (username, phone)
+            )
+            matched_user = cursor.fetchone()
+
+            if matched_user:
+                # 判断验证码是否正确
+                if self.verify_code_ok(self.retrieve_showVerifyVar.get(), self.retrieve_inputVerifyVar.get()):
+                    print('找回成功')
+                    self.retrieve_password(matched_user)
+                    return
                 else:
-                    self.retrieve_phoneEntry.focus_set()  # 设置焦点
-                    self.retrieve_hintLabel.config(text='手机号码输入错误', background='red')  # 输入错误提示语
-                    break
-            # 用户名错误
-            elif name == self.userData[-1]:
-                self.retrieve_userEntry.focus()  # 设置焦点
-                self.retrieve_hintLabel.config(text='用户名输入错误', background='red')  # 输入错误提示语
+                    self.retrieve_verifyButton.focus_set()
+                    self.retrieve_hintLabel.config(text='验证码输入错误', background='red')
+            else:
+                # 进一步区分是用户名错误还是手机号错误
+                cursor.execute("SELECT 1 FROM user_info WHERE username = ?", (username,))
+                if cursor.fetchone():
+                    self.retrieve_phoneEntry.focus_set()
+                    self.retrieve_hintLabel.config(text='手机号码输入错误', background='red')
+                else:
+                    self.retrieve_userEntry.focus_set()
+                    self.retrieve_hintLabel.config(text='用户名输入错误', background='red')
+        finally:
+            conn.close()
 
         # 警告声与更新验证码
         self.bell()  # 警告声

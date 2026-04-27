@@ -1,7 +1,7 @@
 # 通配符 '*'
 __all__ = ['Register']
 
-import os, re, time, random
+import os, re, time, random, sqlite3
 import tkinter as tk
 from tkinter import ttk
 import tkinter.messagebox as tkmb
@@ -211,29 +211,29 @@ class Register(LoginUI_two):
             self.register_hintLabel.config(text=f'6位验证码输入有误', background='red')
             self.register_verifyButton.focus()
 
-        # 判断已注册用户数据库是否为空
-        elif not self.userData:
-            print('首位用户注册成功')
-            self.register_hintLabel.place_forget()
-            self.userData.append([username, password, phone, self.registerRoleVar.get()])
-            self.write_register_user_data(self._user_data_path('已注册用户数据库.txt'))
-            self.register_user_succeed(username)
-            return
-
         else:
-            # 查找用户名是否已注册
-            for name in self.userData:
-                if name[0] == username:
-                    self.register_hintLabel.config(text=f'该用户名已注册', background='red')
-                    self.newUserEntry.focus()
-                    break
-                elif name == self.userData[-1] and username:
-                    print('注册成功')
-                    self.register_hintLabel.place_forget()
-                    self.userData.append([username, password, phone, self.registerRoleVar.get()])
-                    self.write_register_user_data(self._user_data_path('已注册用户数据库.txt'))
-                    self.register_user_succeed(username)
-                    return
+            role = self.registerRoleVar.get()
+            if role not in ('student', 'admin'):
+                role = 'student'
+
+            # SQLite 实时查重：同用户名不可重复注册
+            conn = sqlite3.connect(getattr(self, 'db_path', 'user_info.db'))
+            try:
+                cursor = conn.cursor()
+                cursor.execute("SELECT 1 FROM user_info WHERE username = ?", (username,))
+                exists = cursor.fetchone() is not None
+            finally:
+                conn.close()
+
+            if exists:
+                self.register_hintLabel.config(text='该用户名已注册', background='red')
+                self.newUserEntry.focus_set()
+            else:
+                print('注册成功')
+                self.register_hintLabel.place_forget()
+                self.write_register_user_data(username, password, phone, role)
+                self.register_user_succeed(username)
+                return
 
         # 警告声与更新验证码
         self.bell()
@@ -254,17 +254,18 @@ class Register(LoginUI_two):
         else:
             self.registerUI_return()
 
-    # 4) 写入文件数据库
-    def write_register_user_data(self, path):
-        with open(path, 'w', encoding='utf-8') as file:
-            for user in self.userData:
-                username = user[0]
-                password = user[1]
-                phone = user[2]
-                role = user[3] if len(user) > 3 else 'student'
-                if role not in ('student', 'admin'):
-                    role = 'student'
-                file.write(f'{username} {password} {phone} {role}\n')
+    # 4) 写入 SQLite 用户数据库
+    def write_register_user_data(self, username, password, phone, role='student'):
+        conn = sqlite3.connect(getattr(self, 'db_path', 'user_info.db'))
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO user_info (username, password, phone, role) VALUES (?, ?, ?, ?)",
+                (username, password, phone, role)
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     # 限制输入内容
     def restrictInput(self, event=None):
