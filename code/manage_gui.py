@@ -7,6 +7,12 @@ import sqlite3
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
+from tkinter.filedialog import askopenfilename, asksaveasfilename
+
+import chineseize_matplotlib
+import matplotlib.pyplot as plt
+import pandas as pd
+from openpyxl import Workbook, load_workbook
 
 
 def init_book_table():
@@ -189,6 +195,38 @@ class DataFrame(tk.Frame):
         super().__init__(master)
         tk.Label(self, text="数据分析页（DataFrame）", font=(None, 16, "bold")).pack(pady=30)
 
+        self.pub_pie_btn = ttk.Button(
+            self,
+            text="出版社发行数量统计",
+            command=self.show_pie_chart
+        )
+        self.pub_pie_btn.pack(pady=12)
+
+    def show_pie_chart(self):
+        db_path = os.path.join(os.path.dirname(__file__), "user_info.db")
+        conn = sqlite3.connect(db_path)
+        try:
+            df = pd.read_sql_query("SELECT pubcom FROM book", conn)
+        finally:
+            conn.close()
+
+        pub_series = df["pubcom"].dropna().astype(str).str.strip()
+        pub_series = pub_series[pub_series != ""]
+        counts = pub_series.value_counts()
+
+        if counts.empty:
+            messagebox.showinfo("提示", "当前没有可用于统计的出版社数据")
+            return
+
+        plt.figure(figsize=(8, 6))
+        plt.pie(
+            counts.values,
+            labels=counts.index,
+            autopct="%.1f%%"
+        )
+        plt.title("各出版社图书数量占比")
+        plt.show()
+
 
 class AboutFrame(tk.Frame):
     def __init__(self, master=None):
@@ -237,8 +275,8 @@ class ManageWin(tk.Tk):
 
         # 导入导出
         io_menu = tk.Menu(menubar, tearoff=0)
-        io_menu.add_command(label="导入", command=lambda: self.showFrame(self.list_frame))
-        io_menu.add_command(label="导出", command=lambda: self.showFrame(self.list_frame))
+        io_menu.add_command(label="导入", command=self.import_data)
+        io_menu.add_command(label="导出", command=self.export_data)
         menubar.add_cascade(label="导入导出", menu=io_menu)
 
         # 帮助
@@ -249,6 +287,93 @@ class ManageWin(tk.Tk):
         menubar.add_cascade(label="帮助", menu=help_menu)
 
         self.config(menu=menubar)
+
+    def export_data(self):
+        file_path = asksaveasfilename(
+            title="导出图书数据",
+            defaultextension=".xlsx",
+            filetypes=[("Excel 文件", "*.xlsx")],
+        )
+        if not file_path:
+            return
+
+        db_path = os.path.join(os.path.dirname(__file__), "user_info.db")
+        conn = sqlite3.connect(db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT bookname, author, price, pubcom FROM book")
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "图书数据"
+        ws.append(["书名", "作者", "价格", "出版社"])
+        for row in rows:
+            ws.append(list(row))
+
+        try:
+            wb.save(file_path)
+            messagebox.showinfo("提示", "导出成功")
+        except PermissionError:
+            messagebox.showerror("错误", "导出失败！文件正被其他程序占用，请关闭后重试。")
+        except Exception as e:
+            messagebox.showerror("错误", f"导出时发生未知错误：{e}")
+
+    def import_data(self):
+        file_path = askopenfilename(
+            title="导入图书数据",
+            filetypes=[("Excel 文件", "*.xlsx *.xlsm *.xltx *.xltm")],
+        )
+        if not file_path:
+            return
+
+        try:
+            wb = load_workbook(file_path)
+            ws = wb.active
+        except Exception as e:
+            messagebox.showerror("错误", f"读取 Excel 失败：{e}")
+            return
+
+        db_path = os.path.join(os.path.dirname(__file__), "user_info.db")
+        conn = sqlite3.connect(db_path)
+        try:
+            cursor = conn.cursor()
+            success_count = 0
+            error_count = 0
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                if not row:
+                    continue
+
+                try:
+                    values = list(row) + [None] * (4 - len(row))
+                    bookname, author, price, pubcom = values[0], values[1], values[2], values[3]
+                    if bookname is None or str(bookname).strip() == "":
+                        error_count += 1
+                        continue
+
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO book (bookname, price, author, pubcom) VALUES (?, ?, ?, ?)",
+                        (
+                            str(bookname).strip(),
+                            "" if price is None else str(price).strip(),
+                            "" if author is None else str(author).strip(),
+                            "" if pubcom is None else str(pubcom).strip(),
+                        ),
+                    )
+                    success_count += 1
+                except Exception:
+                    error_count += 1
+            conn.commit()
+        except Exception as e:
+            messagebox.showerror("错误", f"导入失败：{e}")
+            return
+        finally:
+            conn.close()
+
+        messagebox.showinfo("提示", f"导入完成：成功 {success_count} 条，失败 {error_count} 条")
+        self.list_frame.reload()
 
     def showFrame(self, frame):
         """
