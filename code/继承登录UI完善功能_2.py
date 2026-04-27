@@ -5,12 +5,12 @@
 # 通配符 '*'
 __all__ = ['LoginUI_two']
 
-import os, time, sqlite3
+import os, time
 import tkinter as tk
 from tkinter import ttk
 
-from 继承登录UI完善功能_1 import LoginUI_one
 from manage_gui import ManageWin
+from 继承登录UI完善功能_1 import LoginUI_one
 
 
 class LoginUI_two(LoginUI_one):
@@ -36,35 +36,64 @@ class LoginUI_two(LoginUI_one):
 
     # 登录成功(UI)
     def loginSucceedUI(self, role='student'):
-        # 登录成功后直接关闭登录窗口，进入后台管理界面
+        role = role if role in self.VALID_ROLES else 'student'
         self.destroy()
-        manage_win = ManageWin()
+        manage_win = ManageWin(role=role)
         manage_win.mainloop()
+
+    # 显示时钟
+    def showTime(self):
+        if not self.stopFlag:
+            return
+        self.timeVar.set(time.strftime('%X\n%x\n%A'))
+        self._time_job = self.succeedUI.after(200, self.showTime)
+
+    # 登录成功UI返回
+    def succeedUI_return(self):
+        self.stopFlag = 0  # 停止显示时钟（结束循环）
+        if getattr(self, '_time_job', None) is not None:
+            try:
+                self.succeedUI.after_cancel(self._time_job)
+            except tk.TclError:
+                pass
+            self._time_job = None
+
+        self.deiconify()  # 显示主窗口（登录UI）
+        self.succeedUI.destroy()  # 销毁成功登录UI
+
+        # 初始化数据
+        self.userName.set('')
+        self.password.set('')
+        self.inputVerifyCode.set('')
+        self.showVerifyCode.set('获取验证码')
+        self.verifyButton.config(text='获取验证码')
+        self.showOrConcealCount = 0  # 默认是密码隐藏
 
     # 获取已注册的用户数据
     def getUserData(self, path):
-        # 兼容旧调用方式：若传入的是txt路径，则将db放在同目录下
-        if path and os.path.splitext(path)[1].lower() == '.db':
-            self.db_path = path
-        else:
-            base_dir = os.path.dirname(path) if path else os.getcwd()
-            self.db_path = os.path.join(base_dir, 'user_info.db')
 
-        # 初始化数据库与用户表（若不存在则自动创建）
-        conn = sqlite3.connect(self.db_path)
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS user_info (
-                    username TEXT PRIMARY KEY,
-                    password TEXT NOT NULL,
-                    phone TEXT,
-                    role TEXT DEFAULT 'student'
-                )
-            """)
-            conn.commit()
-        finally:
-            conn.close()
+        # 用户数据容器
+        self.userData = []
+
+        # 判断文件是否被创建
+        if os.path.exists(path):
+            # 读取已注册用户数据库数据
+            with open(path, encoding='utf-8') as file:
+                for line in file:
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    parts = line.split()
+                    # 新格式：用户名 密码 手机号 角色
+                    if len(parts) >= 4:
+                        role = parts[3].strip().lower()
+                        role = role if role in self.VALID_ROLES else 'student'
+                        self.userData.append([parts[0], parts[1], parts[2], role])
+                    # 旧格式：用户名 密码 手机号 -> 默认 student
+                    elif len(parts) == 3:
+                        self.userData.append(parts + ['student'])
+                    # 其他异常行：跳过
 
     def _user_data_path(self, filename):
         return self._asset_path('user_data', filename)
@@ -135,53 +164,55 @@ class LoginUI_two(LoginUI_one):
             self.hintLabel.place_forget()
             return
 
-        # 实时查询数据库（不再依赖 self.userData）
-        conn = sqlite3.connect(getattr(self, 'db_path', 'user_info.db'))
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT username, password, role FROM user_info WHERE username = ?",
-                (username,)
-            )
-            row = cursor.fetchone()
-        finally:
-            conn.close()
+        # 如果用户数据为空
+        if not self.userData:
+            self.bell()  # 警告声
+            self.hintLabel.config(text='恭喜您是首位用户\n  快来注册体验吧！', background='pink')
+            self.hintLabel.place(x=228, y=115)
+            self.update()
+            time.sleep(1)
+            self.hintLabel.place_forget()
+            return
 
-        # 用户名不存在
-        if row is None:
-            self.userEntry.focus_set()
-            self.hintLabel.config(text='用户名输入错误', background='red')
-        else:
-            db_username, db_password, db_role = row
-            account_role = (db_role or 'student').strip().lower()
-            if account_role not in self.VALID_ROLES:
-                account_role = 'student'
+        # 查找用户名是否已注册
+        for name in self.userData:
+            # name: [用户名, 密码, 手机号, 角色]
+            if name[0] == username:
+                # 验证密码是否正确
+                if name[1] == password:
+                    # 判断验证码是否正确
+                    if self.verify_code_ok(self.showVerifyCode.get(), input_verify):
+                        account_role = name[3] if len(name) > 3 else 'student'
+                        account_role = account_role if account_role in self.VALID_ROLES else 'student'
 
-            # 密码错误
-            if db_password != password:
-                self.passwordEntry.focus_set()
-                self.hintLabel.config(text='密码输入错误', background='red')
-            # 验证码错误
-            elif not self.verify_code_ok(self.showVerifyCode.get(), input_verify):
-                self.verifyEntry.focus_set()
-                self.hintLabel.config(text='验证码输入错误', background='red')
-            # 角色越权
-            elif account_role != expected_role:
-                self.bell()
-                self.hintLabel.config(
-                    text=f'权限不足：该账号不是{expected_role_name}',
-                    background='red'
-                )
-                self.hintLabel.place(x=228, y=115)
-                self.update()
-                time.sleep(1)
-                self.hintLabel.place_forget()
-                return
-            else:
-                # 登录成功：按角色分流
-                print('登录成功')
-                self.route_to_system(account_role)
-                return
+                        # 角色越权校验
+                        if account_role != expected_role:
+                            self.bell()
+                            self.hintLabel.config(
+                                text=f'权限不足：该账号不是{expected_role_name}',
+                                background='red'
+                            )
+                            self.hintLabel.place(x=228, y=115)
+                            self.update()
+                            time.sleep(1)
+                            self.hintLabel.place_forget()
+                            return
+
+                        # 登录成功：按角色分流
+                        print('登录成功')
+                        self.route_to_system(account_role)
+                        return
+                    else:
+                        self.verifyEntry.focus()
+                        self.hintLabel.config(text='验证码输入错误', background='red')
+                        break
+                else:
+                    self.passwordEntry.focus()
+                    self.hintLabel.config(text='密码输入错误', background='red')
+                    break
+            elif name == self.userData[-1]:
+                self.userEntry.focus_set()
+                self.hintLabel.config(text='用户名输入错误', background='red')
 
         # 警告声与更新验证码
         self.bell()
