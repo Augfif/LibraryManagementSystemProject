@@ -10,6 +10,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from 继承登录UI完善功能_1 import LoginUI_one
+from manage_gui import ManageWin
 
 
 class LoginUI_two(LoginUI_one):
@@ -35,66 +36,10 @@ class LoginUI_two(LoginUI_one):
 
     # 登录成功(UI)
     def loginSucceedUI(self, role='student'):
-        role = role if role in self.VALID_ROLES else 'student'
-        role_name = self.ROLE_NAME_MAP[role]
-
-        # 登录成功UI窗口设计
-        self.succeedUI = tk.Toplevel(self)  # 顶级窗口
-        self.succeedUI.title('登录成功')  # 窗口标题
-        self.succeedUI.geometry(f'610x406+{self.width // 4}+{self.height // 8}')
-        self.succeedUI.resizable(0, 0)  # 窗口大小禁止调节
-        self.succeedUI.focus()  # 窗口焦点
-        self.withdraw()  # 隐藏主窗口（登录UI）
-
-        # 显示内容
-        tk.Label(
-            self.succeedUI,
-            text=f'{role_name}登录成功\n\n欢迎使用图书管理系统',
-            font=(None, 20, 'bold')
-        ).pack(fill=tk.BOTH, expand=1)
-
-        # 显示时钟
-        self.timeVar = tk.StringVar()
-        tk.Label(self.succeedUI, textvariable=self.timeVar, font=(None, 18, 'bold')).place(x=250, y=40)
-
-        # 登录UI返回
-        self.returnButton = ttk.Button(self.succeedUI, text='返回', command=self.succeedUI_return)
-        self.returnButton.place(x=460, y=350)
-
-        # 窗口关闭触发
-        self.succeedUI.protocol("WM_DELETE_WINDOW", self.succeedUI_return)
-
-        self.stopFlag = 1  # 停止显示时钟旗帜
-        self._time_job = None
-        self.showTime()  # 显示时钟
-
-    # 显示时钟
-    def showTime(self):
-        if not self.stopFlag:
-            return
-        self.timeVar.set(time.strftime('%X\n%x\n%A'))
-        self._time_job = self.succeedUI.after(200, self.showTime)
-
-    # 登录成功UI返回
-    def succeedUI_return(self):
-        self.stopFlag = 0  # 停止显示时钟（结束循环）
-        if getattr(self, '_time_job', None) is not None:
-            try:
-                self.succeedUI.after_cancel(self._time_job)
-            except tk.TclError:
-                pass
-            self._time_job = None
-
-        self.deiconify()  # 显示主窗口（登录UI）
-        self.succeedUI.destroy()  # 销毁成功登录UI
-
-        # 初始化数据
-        self.userName.set('')
-        self.password.set('')
-        self.inputVerifyCode.set('')
-        self.showVerifyCode.set('获取验证码')
-        self.verifyButton.config(text='获取验证码')
-        self.showOrConcealCount = 0  # 默认是密码隐藏
+        # 登录成功后直接关闭登录窗口，进入后台管理界面
+        self.destroy()
+        manage_win = ManageWin()
+        manage_win.mainloop()
 
     # 获取已注册的用户数据
     def getUserData(self, path):
