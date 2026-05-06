@@ -15,12 +15,23 @@ import pandas as pd
 from openpyxl import Workbook, load_workbook
 
 
+def _project_root():
+    # code 目录的上一级即项目根目录
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _book_db_path():
+    # 统一将图书数据库放在项目根目录的 user_data 下
+    user_data_dir = os.path.join(_project_root(), "user_data")
+    os.makedirs(user_data_dir, exist_ok=True)
+    return os.path.join(user_data_dir, "user_info.db")
+
+
 def init_book_table():
     """
     初始化图书表（连接 user_info.db 并创建 book 表）
     """
-    db_path = os.path.join(os.path.dirname(__file__), "user_info.db")
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(_book_db_path())
     try:
         cursor = conn.cursor()
         cursor.execute(
@@ -79,7 +90,7 @@ class ListFrame(tk.Frame):
             self.del_btn.config(state=tk.DISABLED)
 
     def _db_path(self):
-        return os.path.join(os.path.dirname(__file__), "user_info.db")
+        return _book_db_path()
 
     def go_add(self):
         self.master.showFrame(self.master.add_frame)
@@ -159,7 +170,7 @@ class AddFrame(tk.Frame):
         ).pack(side=tk.LEFT, padx=6)
 
     def _db_path(self):
-        return os.path.join(os.path.dirname(__file__), "user_info.db")
+        return _book_db_path()
 
     def save_book(self):
         # 直接从 Entry 取值，避免窗口重建后旧 StringVar 失效
@@ -203,8 +214,7 @@ class DataFrame(tk.Frame):
         self.pub_pie_btn.pack(pady=12)
 
     def show_pie_chart(self):
-        db_path = os.path.join(os.path.dirname(__file__), "user_info.db")
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(_book_db_path())
         try:
             df = pd.read_sql_query("SELECT pubcom FROM book", conn)
         finally:
@@ -297,8 +307,7 @@ class ManageWin(tk.Tk):
         if not file_path:
             return
 
-        db_path = os.path.join(os.path.dirname(__file__), "user_info.db")
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(_book_db_path())
         try:
             cursor = conn.cursor()
             cursor.execute("SELECT bookname, author, price, pubcom FROM book")
@@ -336,8 +345,7 @@ class ManageWin(tk.Tk):
             messagebox.showerror("错误", f"读取 Excel 失败：{e}")
             return
 
-        db_path = os.path.join(os.path.dirname(__file__), "user_info.db")
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(_book_db_path())
         try:
             cursor = conn.cursor()
             success_count = 0
