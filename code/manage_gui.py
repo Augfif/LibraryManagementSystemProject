@@ -20,17 +20,82 @@ def _project_root():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def _book_db_path():
-    # 统一将图书数据库放在项目根目录的 user_data 下
+def _user_data_dir():
     user_data_dir = os.path.join(_project_root(), "user_data")
     os.makedirs(user_data_dir, exist_ok=True)
-    return os.path.join(user_data_dir, "user_info.db")
+    return user_data_dir
+
+
+def _book_db_path():
+    # 图书数据库（与用户数据库分离）
+    return os.path.join(_user_data_dir(), "book_info.db")
+
+
+def _user_db_path():
+    # 用户数据库
+    return os.path.join(_user_data_dir(), "user_info.db")
+
+
+def _migrate_books_from_user_info():
+    """
+    若旧版 user_info.db 中遗留有 book 表，把数据迁移到 book_info.db 后删除旧 book 表。
+    仅在首次运行时生效，之后是 no-op。
+    """
+    user_db = _user_db_path()
+    if not os.path.exists(user_db):
+        return
+
+    src = sqlite3.connect(user_db)
+    try:
+        src_cur = src.cursor()
+        src_cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='book'"
+        )
+        if not src_cur.fetchone():
+            return
+
+        rows = src_cur.execute(
+            "SELECT bookname, price, author, pubcom FROM book"
+        ).fetchall()
+
+        if rows:
+            dst = sqlite3.connect(_book_db_path())
+            try:
+                dst_cur = dst.cursor()
+                dst_cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS book (
+                        bookname varchar primary key,
+                        price varchar,
+                        author varchar,
+                        pubcom varchar
+                    )
+                    """
+                )
+                for row in rows:
+                    dst_cur.execute(
+                        "INSERT OR REPLACE INTO book "
+                        "(bookname, price, author, pubcom) VALUES (?, ?, ?, ?)",
+                        row,
+                    )
+                dst.commit()
+            finally:
+                dst.close()
+
+        src_cur.execute("DROP TABLE book")
+        src.commit()
+    except sqlite3.Error:
+        pass
+    finally:
+        src.close()
 
 
 def init_book_table():
     """
-    初始化图书表（连接 user_info.db 并创建 book 表）
+    初始化图书表（连接 book_info.db 并创建 book 表）
     """
+    _migrate_books_from_user_info()
+
     conn = sqlite3.connect(_book_db_path())
     try:
         cursor = conn.cursor()

@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import ttk
 import tkinter.messagebox as tkmb
 
-from 继承登录UI完善功能_2 import LoginUI_two
+from 继承登录UI完善功能_2 import LoginUI_two, upsert_user
 
 
 class Register(LoginUI_two):
@@ -254,17 +254,20 @@ class Register(LoginUI_two):
         else:
             self.registerUI_return()
 
-    # 4) 写入文件数据库
-    def write_register_user_data(self, path):
-        with open(path, 'w', encoding='utf-8') as file:
-            for user in self.userData:
-                username = user[0]
-                password = user[1]
-                phone = user[2]
-                role = user[3] if len(user) > 3 else 'student'
-                if role not in ('student', 'admin'):
-                    role = 'student'
-                file.write(f'{username} {password} {phone} {role}\n')
+    # 4) 将最新注册用户写入数据库（user_info.db / user 表）
+    def write_register_user_data(self, path=None):
+        """
+        将 self.userData 中最新追加的用户写入 user_info.db。
+        path 参数保留以兼容旧调用，但不再被使用（不再写 txt）。
+        """
+        if not self.userData:
+            return
+        user = self.userData[-1]
+        username = user[0]
+        password = user[1]
+        phone = user[2]
+        role = user[3] if len(user) > 3 else 'student'
+        upsert_user(username, password, phone, role)
 
     # 限制输入内容
     def restrictInput(self, event=None):

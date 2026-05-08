@@ -3,14 +3,137 @@
 """
 
 # 通配符 '*'
-__all__ = ['LoginUI_two']
+__all__ = ['LoginUI_two', 'load_all_users', 'upsert_user']
 
-import os, time
+import os, sqlite3, time
 import tkinter as tk
 from tkinter import ttk
 
 from manage_gui import ManageWin
 from 继承登录UI完善功能_1 import LoginUI_one
+
+
+# === 用户数据库（user_info.db / user 表）相关工具函数 ===
+
+_VALID_ROLES_DB = {'student', 'admin'}
+
+
+def _user_db_path_static():
+    """user_info.db 路径，统一放在项目根目录下的 user_data/。"""
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    user_data_dir = os.path.join(project_root, 'user_data')
+    os.makedirs(user_data_dir, exist_ok=True)
+    return os.path.join(user_data_dir, 'user_info.db')
+
+
+def _init_user_table():
+    """确保 user_info.db 中存在 user 表。"""
+    conn = sqlite3.connect(_user_db_path_static())
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user (
+                username varchar PRIMARY KEY,
+                password varchar,
+                phone    varchar,
+                role     varchar
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _migrate_users_from_txt(txt_path):
+    """
+    若 user 表为空且旧 txt 用户库存在，则一次性迁移到 SQLite。
+    迁移完成后保留 txt 文件，但后续读写都不再使用它。
+    """
+    if not txt_path or not os.path.exists(txt_path):
+        return
+
+    conn = sqlite3.connect(_user_db_path_static())
+    try:
+        cursor = conn.cursor()
+        count = cursor.execute("SELECT COUNT(*) FROM user").fetchone()[0]
+        if count > 0:
+            return
+
+        with open(txt_path, encoding='utf-8') as file:
+            for line in file:
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split()
+
+                if len(parts) >= 4:
+                    username, password, phone = parts[0], parts[1], parts[2]
+                    role = parts[3].strip().lower()
+                    if role not in _VALID_ROLES_DB:
+                        role = 'student'
+                elif len(parts) == 3:
+                    username, password, phone = parts[0], parts[1], parts[2]
+                    role = 'student'
+                else:
+                    continue
+
+                cursor.execute(
+                    "INSERT OR IGNORE INTO user "
+                    "(username, password, phone, role) VALUES (?, ?, ?, ?)",
+                    (username, password, phone, role),
+                )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_all_users():
+    """读取 user 表所有用户，返回 [[username, password, phone, role], ...]。"""
+    _init_user_table()
+    conn = sqlite3.connect(_user_db_path_static())
+    try:
+        cursor = conn.cursor()
+        rows = cursor.execute(
+            "SELECT username, password, phone, role FROM user"
+        ).fetchall()
+    finally:
+        conn.close()
+    return [list(row) for row in rows]
+
+
+def upsert_user(username, password, phone, role):
+    """新增或覆盖一条用户记录。"""
+    if role not in _VALID_ROLES_DB:
+        role = 'student'
+    _init_user_table()
+    conn = sqlite3.connect(_user_db_path_static())
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO user "
+            "(username, password, phone, role) VALUES (?, ?, ?, ?)",
+            (username, password, phone, role),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def find_user(username):
+    """按用户名查询单条用户，返回 [username, password, phone, role] 或 None。"""
+    _init_user_table()
+    conn = sqlite3.connect(_user_db_path_static())
+    try:
+        cursor = conn.cursor()
+        row = cursor.execute(
+            "SELECT username, password, phone, role FROM user WHERE username=?",
+            (username,),
+        ).fetchone()
+    finally:
+        conn.close()
+    return list(row) if row else None
 
 
 class LoginUI_two(LoginUI_one):
@@ -69,31 +192,17 @@ class LoginUI_two(LoginUI_one):
         self.verifyButton.config(text='获取验证码')
         self.showOrConcealCount = 0  # 默认是密码隐藏
 
-    # 获取已注册的用户数据
-    def getUserData(self, path):
-
-        # 用户数据容器
-        self.userData = []
-
-        # 判断文件是否被创建
-        if os.path.exists(path):
-            # 读取已注册用户数据库数据
-            with open(path, encoding='utf-8') as file:
-                for line in file:
-                    line = line.strip()
-                    if not line:
-                        continue
-
-                    parts = line.split()
-                    # 新格式：用户名 密码 手机号 角色
-                    if len(parts) >= 4:
-                        role = parts[3].strip().lower()
-                        role = role if role in self.VALID_ROLES else 'student'
-                        self.userData.append([parts[0], parts[1], parts[2], role])
-                    # 旧格式：用户名 密码 手机号 -> 默认 student
-                    elif len(parts) == 3:
-                        self.userData.append(parts + ['student'])
-                    # 其他异常行：跳过
+    # 获取已注册的用户数据（数据源：user_info.db / user 表）
+    def getUserData(self, path=None):
+        """
+        从 user_info.db 加载已注册用户。
+        path 参数保留以兼容旧调用：若指向旧 txt 用户库，且 user 表为空，
+        会自动把 txt 数据迁移进 SQLite，然后再读取。
+        """
+        _init_user_table()
+        if path:
+            _migrate_users_from_txt(path)
+        self.userData = load_all_users()
 
     def _user_data_path(self, filename):
         return self._asset_path('user_data', filename)
