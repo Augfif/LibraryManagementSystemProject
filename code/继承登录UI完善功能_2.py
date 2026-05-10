@@ -158,10 +158,10 @@ class LoginUI_two(LoginUI_one):
         # self.loginSucceedUI()   # 模拟登录成功
 
     # 登录成功(UI)
-    def loginSucceedUI(self, role='student'):
+    def loginSucceedUI(self, role='student', username=''):
         role = role if role in self.VALID_ROLES else 'student'
         self.destroy()
-        manage_win = ManageWin(role=role)
+        manage_win = ManageWin(role=role, current_user=username)
         manage_win.mainloop()
 
     # 显示时钟
@@ -309,7 +309,7 @@ class LoginUI_two(LoginUI_one):
 
                         # 登录成功：按角色分流
                         print('登录成功')
-                        self.route_to_system(account_role)
+                        self.route_to_system(account_role, username)
                         return
                     else:
                         self.verifyEntry.focus()
@@ -331,22 +331,22 @@ class LoginUI_two(LoginUI_one):
         time.sleep(1)
         self.hintLabel.place_forget()
 
-    def route_to_system(self, role):
+    def route_to_system(self, role, username):
         """登录后按角色进入对应系统页"""
         if role == 'admin':
-            self.adminSystemUI()
+            self.adminSystemUI(username)
         else:
-            self.studentSystemUI()
+            self.studentSystemUI(username)
 
-    def adminSystemUI(self):
+    def adminSystemUI(self, username):
         """管理员系统入口（预留）"""
         print('进入管理员系统（预留接口：adminSystemUI）')
-        self.loginSucceedUI(role='admin')
+        self.loginSucceedUI(role='admin', username=username)
 
-    def studentSystemUI(self):
+    def studentSystemUI(self, username):
         """学生系统入口（预留）"""
         print('进入学生系统（预留接口：studentSystemUI）')
-        self.loginSucceedUI(role='student')
+        self.loginSucceedUI(role='student', username=username)
 
 # 代码测试
 if __name__ == '__main__':
